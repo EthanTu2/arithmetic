@@ -20,7 +20,7 @@ grammar = r"""
         | product "(" sum ")"  -> parenmul
 
     ?expo: atom
-        | expo "**" atom  -> exp
+        | expo "**" atom  -> expo
 
     ?atom: NUMBER           -> number
         | "(" sum ")"
@@ -65,10 +65,6 @@ class Interpreter(lark.visitors.Interpreter):
     >>> interpreter.visit(parser.parse("((1*2+(3)*4))*(5-6)"))
     -14
 
-    NOTE:
-    The grammar for the arithmetic above should all be implemented correctly.
-    The arithmetic expressions below, however, will require you to modify the grammar.
-
     Modular division:
 
     >>> interpreter.visit(parser.parse("1%2"))
@@ -96,12 +92,6 @@ class Interpreter(lark.visitors.Interpreter):
     2187
     >>> interpreter.visit(parser.parse("(1+2)**3-4"))
     23
-
-    NOTE:
-    The calculator is designed to only work on integers.
-    Division uses integer division,
-    and exponentiation should use integer exponentiation when the exponent is negative.
-    (That is, it should round the fraction down to zero.)
 
     >>> interpreter.visit(parser.parse("2**-1"))
     0
@@ -278,25 +268,6 @@ def minify(expr):
     In our arithmetic language, this means removing unnecessary whitespace and unnecessary parentheses.
     It is common to minify code in order to save disk space and bandwidth.
     For example, google penalizes a web site's search ranking if they don't minify their html/javascript code.
-
-    FIXME:
-    Implement this function so that the test cases below pass.
-
-    HINT:
-    My solution uses two lark.Transformer classes.
-    The first one takes an AST and removes any unneeded parentheses.
-    The second taks an AST and converts the AST into a string.
-    You can solve this problem by calling parser.parse,
-    and then applying the two transformers above to the resulting AST.
-
-    NOTE:
-    It is important that these types of "syntactic" transformations use the Transformer class and not the Interpreter class.
-    If we used the Interpreter class, we could "accidentally do too much computation",
-    but the Transformer class's leaf-to-root workflow prevents this class of bug.
-
-    NOTE:
-    The test cases below do not require any of the "new" features that you are required to add to the Arithmetic grammar.
-    It only uses the features in the starting code.
 
     >>> minify("1 + 2")
     '1+2'
