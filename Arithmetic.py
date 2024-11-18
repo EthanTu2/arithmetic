@@ -13,12 +13,17 @@ grammar = r"""
         | sum "+" product   -> add
         | sum "-" product   -> sub
 
-    ?product: atom
-        | product "*" atom  -> mul
-        | product "/" atom  -> div
+    ?product: expo
+        | product "*" expo  -> mul
+        | product "/" expo  -> div
+        | product "%" expo  -> mod
+        | product "(" sum ")"  -> parenmul
+
+    ?expo: atom
+        | expo "**" atom  -> exp
 
     ?atom: NUMBER           -> number
-        | "(" sum ")"       -> paren
+        | "(" sum ")"
 
     NUMBER: /-?[0-9]+/
 
@@ -33,9 +38,6 @@ class Interpreter(lark.visitors.Interpreter):
     Compute the value of the expression.
     The interpreter class processes nodes "top down",
     starting at the root and recursively evaluating subtrees.
-
-    FIXME:
-    Get all the test cases to pass.
 
     >>> interpreter = Interpreter()
     >>> interpreter.visit(parser.parse("1"))
@@ -127,6 +129,28 @@ class Interpreter(lark.visitors.Interpreter):
     >>> interpreter.visit(parser.parse("(1+2)(3(4))"))
     36
     '''
+    def start(self, tree):
+        return self.visit(tree.children[0])
+    def add(self, tree):
+        return self.visit(tree.children[0]) + self.visit(tree.children[1])
+    def sub(self, tree):
+        return self.visit(tree.children[0]) - self.visit(tree.children[1])
+    def mul(self, tree):
+        return self.visit(tree.children[0]) * self.visit(tree.children[1])
+    def div(self, tree):
+        return self.visit(tree.children[0]) // self.visit(tree.children[1])
+    def mod(self, tree):
+        return self.visit(tree.children[0]) % self.visit(tree.children[1])
+    def expo(self, tree):
+        v0 = self.visit(tree.children[0])
+        v1 = self.visit(tree.children[1])
+        if v1 < 0:
+            return 0
+        return v0 ** v1
+    def number(self, tree):
+        return int(tree.children[0])
+    def parenmul(self, tree):
+        return self.visit(tree.children[0]) * self.visit(tree.children[1])
 
 
 class Simplifier(lark.Transformer):
@@ -137,12 +161,6 @@ class Simplifier(lark.Transformer):
     In general, the Transformer class is less powerful than the Interpreter class.
     But in the case of simple arithmetic expressions,
     both classes can be used to evaluate the expression.
-
-    FIXME:
-    This class contains all of the same test cases as the Interpreter class.
-    You should fix all the failing test cases.
-    You shouldn't need to make any additional modifications to the grammar beyond what was needed for the interpreter class.
-    You should notice that the functions in the lark.Transformer class are simpler to implement because you do not have to manage the recursion yourself.
 
     >>> simplifier = Simplifier()
     >>> simplifier.transform(parser.parse("1"))
@@ -226,6 +244,27 @@ class Simplifier(lark.Transformer):
     >>> simplifier.transform(parser.parse("(1+2)(3(4))"))
     36
     '''
+    def start(self, children):
+        return children[0]
+    def add(self, children):
+        return children[0] + children[1]
+    def sub(self, children):
+        return children[0] - children[1]
+    def mul(self, children):
+        return children[0] * children[1]
+    def div(self, children):
+        return children[0] // children[1]
+    def mod(self, children):
+        return round(children[0] % children[1])
+    def expo(self, children):
+        base, exp = children
+        if exp < 0:
+            return 0
+        return base ** exp
+    def number(self, children):
+        return int(children[0])
+    def parenmul(self, children):
+        return children[0] * children[1]
 
 
 ########################################
@@ -282,7 +321,62 @@ def minify(expr):
     >>> minify("1 + (((2)*(3)) + 4 * ((5 + 6) - 7))")
     '1+2*3+4*(5+6-7)'
     '''
+    from lark import Lark, Transformer
 
+    class Simplifier(Transformer):
+        def start(self, children):
+            return children[0]
+        
+        def add(self, children):
+            return f"{children[0]}+{children[1]}"
+        
+        def sub(self, children):
+            return f"{children[0]}-{children[1]}"
+        
+        def mul(self, children):
+            left, right = children
+            # Add parentheses around sub-expressions if needed to ensure correct precedence
+            left = self._add_parens_if_needed(left)
+            right = self._add_parens_if_needed(right)
+            return f"{left}*{right}"
+        
+        def div(self, children):
+            left, right = children
+            left = self._add_parens_if_needed(left)
+            right = self._add_parens_if_needed(right)
+            return f"{left}/{right}"
+        
+        def mod(self, children):
+            left, right = children
+            left = self._add_parens_if_needed(left)
+            right = self._add_parens_if_needed(right)
+            return f"{left}%{right}"
+        
+        def expo(self, children):
+            left, right = children
+            left = self._add_parens_if_needed(left)
+            right = self._add_parens_if_needed(right)
+            return f"{left}**{right}"
+        
+        def number(self, children):
+            return children[0].value
+        
+        def _add_parens_if_needed(self, expr):
+            """
+            Helper method to add parentheses around an expression if it contains operators like '+', '-', 
+            '*' or '/' to ensure correct precedence.
+            """
+            if isinstance(expr, str) and any(op in expr for op in ('+', '-', '*', '/')):
+                return f"({expr})"
+            return expr
+
+    # Create the Lark parser and parse the expression
+    parser = Lark(grammar, start='start')
+    tree = parser.parse(expr)
+    
+    # Use the Simplifier transformer to minify the expression
+    simplifier = Simplifier()
+    return simplifier.transform(tree)
 
 def infix_to_rpn(expr):
     '''
@@ -311,8 +405,20 @@ def infix_to_rpn(expr):
     >>> infix_to_rpn('(1*2)+3+4*(5-6)')
     '1 2 * 3 + 4 5 6 - * +'
     '''
-
-
+    class Interpreter(lark.visitors.Interpreter):
+        def start(self, tree):
+            return self.visit(tree.children[0])
+        def add(self, tree):
+            return self.visit(tree.children[0]) + " " + self.visit(tree.children[1]) + " +"
+        def sub(self, tree):
+            return self.visit(tree.children[0]) + " " + self.visit(tree.children[1]) + " -"
+        def mul(self, tree):
+            return self.visit(tree.children[0]) + " " + self.visit(tree.children[1]) + " *"
+        def number(self, tree):
+            return str(tree.children[0].value)
+    interpreter = Interpreter()
+    return interpreter.visit(parser.parse(expr))
+infix_to_rpn('1')
 def eval_rpn(expr):
     '''
     This function evaluates an expression written in RPN.
@@ -322,12 +428,6 @@ def eval_rpn(expr):
     For example, parentheses are never needed to disambiguate order of operations.
     Parsing of RPN is so easy, that it is usually done at the same time as evaluation without a separate parsing phase.
     More complicated languages (like the infix language above) are basically always implemented with separate parsing/evaluation phases.
-
-    You can find more details on wikipedia: <https://en.wikipedia.org/wiki/Reverse_Polish_notation>.
-
-    NOTE:
-    There is nothing to implement for this function,
-    it is only provided as a reference for understanding the infix_to_rpn function.
 
     >>> eval_rpn("1")
     1
